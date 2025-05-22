@@ -2,7 +2,7 @@
 Motor kontrol sınıfı - Şerit takip eden robot için optimize edilmiş
 Raspberry Pi 5 için uyumlu hale getirilmiştir
 gpiozero kütüphanesi kullanılarak motor kontrolü sağlanır
-config.py dosyasındaki PIN_NUMBERING ayarına göre pin numaralandırma sistemi seçilir
+BOARD pin numaralarının BCM karşılıklarını kullanır
 pigpiod kullanılmadan sadece RPi.GPIO ile çalışır
 """
 
@@ -18,34 +18,32 @@ try:
     # RPi.GPIO pin fabrikasını içe aktar
     from gpiozero.pins.rpigpio import RPiGPIOFactory
 
-    # Pin numaralandırma sistemini belirle
-    pin_numbering = config.PIN_NUMBERING  # "BOARD" veya "BCM"
-
     # RPi.GPIO kütüphanesini içe aktar
     try:
         import RPi.GPIO as GPIO
         GPIO.setwarnings(False)
 
-        # Pin numaralandırma modunu ayarla
-        if pin_numbering == "BOARD":
-            GPIO.setmode(GPIO.BOARD)
-            logger.info("RPi.GPIO BOARD pin numaralandırması ayarlandı")
-        else:
-            GPIO.setmode(GPIO.BCM)
-            logger.info("RPi.GPIO BCM pin numaralandırması ayarlandı")
+        # BCM pin numaralandırma modunu ayarla
+        GPIO.setmode(GPIO.BCM)
+        logger.info("RPi.GPIO BCM pin numaralandırması ayarlandı")
 
         # RPiGPIOFactory kullan
         factory = RPiGPIOFactory()
-        logger.info(f"RPiGPIO pin fabrikası {pin_numbering} pin numaralandırması ile kullanılıyor")
+        logger.info("RPiGPIO pin fabrikası BCM pin numaralandırması ile kullanılıyor")
 
         # Varsayılan pin fabrikasını ayarla
         Device.pin_factory = factory
+
+        # BOARD-BCM dönüşüm bilgisini göster
+        logger.info("BOARD-BCM pin dönüşümü:")
+        for board_pin, bcm_pin in config.BOARD_TO_BCM.items():
+            logger.info(f"BOARD {board_pin} -> BCM {bcm_pin}")
     except Exception as e:
         logger.warning(f"RPi.GPIO ayarlanamadı: {e}")
         logger.info("Varsayılan pin fabrikası kullanılıyor")
         factory = None
 
-    logger.info(f"Pin numaralandırma modu: {pin_numbering}")
+    logger.info("BCM pin numaralandırma modu kullanılıyor")
 
     GPIO_AVAILABLE = True
     logger.info("gpiozero kütüphanesi başarıyla yüklendi")
@@ -76,29 +74,21 @@ class MotorController:
             return
 
         try:
-            # Pin numaralandırma sistemine göre pin numaralarını ayarla
-            if config.PIN_NUMBERING == "BCM":
-                # BCM pin numaralarını kullan
-                left_ena_pin = config.BCM_LEFT_MOTOR_ENA
-                left_in1_pin = config.BCM_LEFT_MOTOR_IN1
-                left_in2_pin = config.BCM_LEFT_MOTOR_IN2
-                right_ena_pin = config.BCM_RIGHT_MOTOR_ENA
-                right_in1_pin = config.BCM_RIGHT_MOTOR_IN1
-                right_in2_pin = config.BCM_RIGHT_MOTOR_IN2
+            # BCM pin numaralarını kullan
+            left_ena_pin = config.BCM_LEFT_MOTOR_ENA
+            left_in1_pin = config.BCM_LEFT_MOTOR_IN1
+            left_in2_pin = config.BCM_LEFT_MOTOR_IN2
+            right_ena_pin = config.BCM_RIGHT_MOTOR_ENA
+            right_in1_pin = config.BCM_RIGHT_MOTOR_IN1
+            right_in2_pin = config.BCM_RIGHT_MOTOR_IN2
 
-                logger.info(f"Sol motor pinleri: ENA={left_ena_pin}(BCM), IN1={left_in1_pin}(BCM), IN2={left_in2_pin}(BCM)")
-                logger.info(f"Sağ motor pinleri: ENA={right_ena_pin}(BCM), IN1={right_in1_pin}(BCM), IN2={right_in2_pin}(BCM)")
-            else:
-                # BOARD pin numaralarını kullan
-                left_ena_pin = config.BOARD_LEFT_MOTOR_ENA
-                left_in1_pin = config.BOARD_LEFT_MOTOR_IN1
-                left_in2_pin = config.BOARD_LEFT_MOTOR_IN2
-                right_ena_pin = config.BOARD_RIGHT_MOTOR_ENA
-                right_in1_pin = config.BOARD_RIGHT_MOTOR_IN1
-                right_in2_pin = config.BOARD_RIGHT_MOTOR_IN2
+            # Kullanılan pin numaralarını logla
+            logger.info(f"Sol motor pinleri (BCM): ENA={left_ena_pin}, IN1={left_in1_pin}, IN2={left_in2_pin}")
+            logger.info(f"Sağ motor pinleri (BCM): ENA={right_ena_pin}, IN1={right_in1_pin}, IN2={right_in2_pin}")
 
-                logger.info(f"Sol motor pinleri: ENA={left_ena_pin}(BOARD), IN1={left_in1_pin}(BOARD), IN2={left_in2_pin}(BOARD)")
-                logger.info(f"Sağ motor pinleri: ENA={right_ena_pin}(BOARD), IN1={right_in1_pin}(BOARD), IN2={right_in2_pin}(BOARD)")
+            # Orijinal BOARD pin numaralarını da logla
+            logger.info(f"Orijinal sol motor pinleri (BOARD): ENA={config.BOARD_LEFT_MOTOR_ENA}, IN1={config.BOARD_LEFT_MOTOR_IN1}, IN2={config.BOARD_LEFT_MOTOR_IN2}")
+            logger.info(f"Orijinal sağ motor pinleri (BOARD): ENA={config.BOARD_RIGHT_MOTOR_ENA}, IN1={config.BOARD_RIGHT_MOTOR_IN1}, IN2={config.BOARD_RIGHT_MOTOR_IN2}")
 
             # Sol motor için PWM hız kontrolü ve motor nesnesi
             self.left_ena = PWMOutputDevice(left_ena_pin)
