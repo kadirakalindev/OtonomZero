@@ -2,44 +2,58 @@
 Motor kontrol sınıfı - Şerit takip eden robot için optimize edilmiş
 Raspberry Pi 5 için uyumlu hale getirilmiştir
 gpiozero kütüphanesi kullanılarak motor kontrolü sağlanır
+Fiziksel pin numaraları (BOARD) kullanılarak yapılandırılmıştır
 """
 
 import time
 import config
 from loguru import logger
 
+# BOARD-BCM pin dönüşüm tablosu
+BOARD_TO_BCM = {
+    # Sol Motor
+    12: 18,  # ENA -> GPIO18
+    16: 23,  # IN1 -> GPIO23
+    18: 24,  # IN2 -> GPIO24
+    # Sağ Motor
+    32: 12,  # ENA -> GPIO12
+    36: 16,  # IN1 -> GPIO16
+    38: 20,  # IN2 -> GPIO20
+}
+
 # GPIO modüllerini kontrol et ve içe aktar
 try:
     # gpiozero kütüphanesinden gerekli sınıfları içe aktar
     from gpiozero import Motor, PWMOutputDevice, Device
-    from gpiozero.pins.pigpio import PiGPIOFactory
 
-    # Alternatif pin fabrikaları (gerekirse kullanılabilir)
-    # from gpiozero.pins.rpigpio import RPiGPIOFactory
-    # from gpiozero.pins.native import NativeFactory
+    # Pin fabrikalarını içe aktar
+    from gpiozero.pins.rpigpio import RPiGPIOFactory
+    from gpiozero.pins.native import NativeFactory
 
-    # Varsayılan pin fabrikasını ayarla (daha iyi performans için pigpio kullan)
     try:
         # pigpio daemon'ın çalıştığından emin ol
         import subprocess
         subprocess.run(["pgrep", "pigpiod"], check=True)
+        from gpiozero.pins.pigpio import PiGPIOFactory
 
-        # BOARD pin numaralandırması kullan (fiziksel pin numaraları)
-        from gpiozero.pins.rpigpio import RPiGPIOFactory
-        factory = RPiGPIOFactory(pin_mode="BOARD")  # BOARD pin numaralandırması kullan
-        Device.pin_factory = factory
-        logger.info("RPiGPIO pin fabrikası BOARD pin numaralandırması ile kullanılıyor")
+        # BOARD pin numaralandırması için özel fabrika oluştur
+        # Not: PiGPIOFactory BOARD modunu doğrudan desteklemez, bu yüzden BCM pinlerini kullanacağız
+        factory = PiGPIOFactory()
+        logger.info("PiGPIO pin fabrikası BCM pin numaralandırması ile kullanılıyor")
     except (ImportError, subprocess.CalledProcessError):
-        # pigpio daemon çalışmıyorsa veya hata varsa, varsayılan fabrikayı kullan
-        # Ancak yine de BOARD pin numaralandırması kullan
-        try:
-            from gpiozero.pins.rpigpio import RPiGPIOFactory
-            factory = RPiGPIOFactory(pin_mode="BOARD")  # BOARD pin numaralandırması kullan
-            Device.pin_factory = factory
-            logger.info("Varsayılan RPiGPIO fabrikası BOARD pin numaralandırması ile kullanılıyor")
-        except Exception as e:
-            logger.warning(f"Pin fabrikası ayarlanamadı: {e}")
-            logger.info("Varsayılan pin fabrikası kullanılıyor")
+        # RPi.GPIO kullanarak BOARD pin numaralandırması
+        factory = RPiGPIOFactory(pin_mode="BOARD")
+        logger.info("RPiGPIO pin fabrikası BOARD pin numaralandırması ile kullanılıyor")
+
+    # Varsayılan pin fabrikasını ayarla
+    Device.pin_factory = factory
+
+    # Pin numaralandırma modunu kontrol et ve log'a yaz
+    pin_mode = "BOARD" if hasattr(factory, "_mode") and factory._mode == "BOARD" else "BCM"
+    logger.info(f"Pin numaralandırma modu: {pin_mode}")
+
+    # Pin numaralandırma modu BCM ise, BOARD pinlerini BCM'ye çevireceğiz
+    USE_BCM_CONVERSION = (pin_mode == "BCM")
 
     GPIO_AVAILABLE = True
     logger.info("gpiozero kütüphanesi başarıyla yüklendi")
@@ -49,6 +63,7 @@ except ImportError as e:
     logger.error("sudo apt install -y python3-gpiozero python3-pigpio")
     logger.error("sudo pigpiod")  # pigpio daemon'ı başlat
     GPIO_AVAILABLE = False
+    USE_BCM_CONVERSION = False
 
 class MotorController:
     def __init__(self):
@@ -69,19 +84,44 @@ class MotorController:
             return
 
         try:
+            # Pin numaralandırma moduna göre pin numaralarını ayarla
+            if 'USE_BCM_CONVERSION' in globals() and USE_BCM_CONVERSION:
+                # BCM pin numaralandırması kullanılıyorsa, BOARD pinlerini BCM'ye çevir
+                logger.info("BOARD pinleri BCM'ye çevriliyor...")
+                left_ena_pin = BOARD_TO_BCM.get(config.LEFT_MOTOR_ENA, config.LEFT_MOTOR_ENA)
+                left_in1_pin = BOARD_TO_BCM.get(config.LEFT_MOTOR_IN1, config.LEFT_MOTOR_IN1)
+                left_in2_pin = BOARD_TO_BCM.get(config.LEFT_MOTOR_IN2, config.LEFT_MOTOR_IN2)
+                right_ena_pin = BOARD_TO_BCM.get(config.RIGHT_MOTOR_ENA, config.RIGHT_MOTOR_ENA)
+                right_in1_pin = BOARD_TO_BCM.get(config.RIGHT_MOTOR_IN1, config.RIGHT_MOTOR_IN1)
+                right_in2_pin = BOARD_TO_BCM.get(config.RIGHT_MOTOR_IN2, config.RIGHT_MOTOR_IN2)
+
+                logger.info(f"Sol motor pinleri: ENA={left_ena_pin}(BCM), IN1={left_in1_pin}(BCM), IN2={left_in2_pin}(BCM)")
+                logger.info(f"Sağ motor pinleri: ENA={right_ena_pin}(BCM), IN1={right_in1_pin}(BCM), IN2={right_in2_pin}(BCM)")
+            else:
+                # BOARD pin numaralandırması kullanılıyorsa, doğrudan fiziksel pinleri kullan
+                left_ena_pin = config.LEFT_MOTOR_ENA
+                left_in1_pin = config.LEFT_MOTOR_IN1
+                left_in2_pin = config.LEFT_MOTOR_IN2
+                right_ena_pin = config.RIGHT_MOTOR_ENA
+                right_in1_pin = config.RIGHT_MOTOR_IN1
+                right_in2_pin = config.RIGHT_MOTOR_IN2
+
+                logger.info(f"Sol motor pinleri: ENA={left_ena_pin}(BOARD), IN1={left_in1_pin}(BOARD), IN2={left_in2_pin}(BOARD)")
+                logger.info(f"Sağ motor pinleri: ENA={right_ena_pin}(BOARD), IN1={right_in1_pin}(BOARD), IN2={right_in2_pin}(BOARD)")
+
             # Sol motor için PWM hız kontrolü ve motor nesnesi
-            self.left_ena = PWMOutputDevice(config.LEFT_MOTOR_ENA)
+            self.left_ena = PWMOutputDevice(left_ena_pin)
             self.left_motor = Motor(
-                forward=config.LEFT_MOTOR_IN1,
-                backward=config.LEFT_MOTOR_IN2,
+                forward=left_in1_pin,
+                backward=left_in2_pin,
                 pwm=False  # PWM'i kendimiz kontrol edeceğiz
             )
 
             # Sağ motor için PWM hız kontrolü ve motor nesnesi
-            self.right_ena = PWMOutputDevice(config.RIGHT_MOTOR_ENA)
+            self.right_ena = PWMOutputDevice(right_ena_pin)
             self.right_motor = Motor(
-                forward=config.RIGHT_MOTOR_IN1,
-                backward=config.RIGHT_MOTOR_IN2,
+                forward=right_in1_pin,
+                backward=right_in2_pin,
                 pwm=False  # PWM'i kendimiz kontrol edeceğiz
             )
 
