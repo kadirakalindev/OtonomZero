@@ -58,23 +58,41 @@ Kısaca:
 
 ```bash
 sudo apt update
-sudo apt install -y python3-libcamera python3-picamera2 python3-opencv python3-gpiozero python3-rpi.gpio
+sudo apt install -y python3-libcamera python3-picamera2 python3-opencv libcamera-apps
+sudo apt install -y python3-gpiozero python3-pigpio python3-rpi.gpio
 ```
 
-2. Python paketlerini yükleyin:
+2. pigpio daemon'ı başlatın (daha iyi motor kontrolü için):
+
+```bash
+sudo pigpiod
+sudo systemctl enable pigpiod  # Sistem başlangıcında otomatik başlatma
+```
+
+3. Python paketlerini yükleyin:
 
 ```bash
 pip3 install -r requirements.txt
 ```
 
-3. Raspberry Pi kamera modülünü etkinleştirin:
+4. Raspberry Pi kamera modülünü etkinleştirin:
 
 ```bash
 sudo raspi-config
 # Interface Options -> Camera -> Enable seçin
 ```
 
-4. Programı çalıştırın:
+5. Kamera ve GPIO'yu test edin:
+
+```bash
+# Kamera testi
+libcamera-hello
+
+# GPIO testi
+python3 -c "from gpiozero import LED; led = LED(17); led.on(); import time; time.sleep(1); led.off()"
+```
+
+6. Programı çalıştırın:
 
 ```bash
 # Normal mod

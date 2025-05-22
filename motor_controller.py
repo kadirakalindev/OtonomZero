@@ -1,6 +1,7 @@
 """
 Motor kontrol sınıfı - Şerit takip eden robot için optimize edilmiş
 Raspberry Pi 5 için uyumlu hale getirilmiştir
+gpiozero kütüphanesi kullanılarak motor kontrolü sağlanır
 """
 
 import time
@@ -9,11 +10,34 @@ from loguru import logger
 
 # GPIO modüllerini kontrol et ve içe aktar
 try:
-    from gpiozero import Motor, PWMOutputDevice
+    # gpiozero kütüphanesinden gerekli sınıfları içe aktar
+    from gpiozero import Motor, PWMOutputDevice, Device
+    from gpiozero.pins.pigpio import PiGPIOFactory
+
+    # Alternatif pin fabrikaları (gerekirse kullanılabilir)
+    # from gpiozero.pins.rpigpio import RPiGPIOFactory
+    # from gpiozero.pins.native import NativeFactory
+
+    # Varsayılan pin fabrikasını ayarla (daha iyi performans için pigpio kullan)
+    try:
+        # pigpio daemon'ın çalıştığından emin ol
+        import subprocess
+        subprocess.run(["pgrep", "pigpiod"], check=True)
+        # Eğer çalışıyorsa, pigpio fabrikasını kullan
+        factory = PiGPIOFactory()
+        Device.pin_factory = factory
+        logger.info("PiGPIO pin fabrikası kullanılıyor (daha iyi performans)")
+    except (ImportError, subprocess.CalledProcessError):
+        # pigpio daemon çalışmıyorsa, varsayılan fabrikayı kullan
+        logger.info("Varsayılan pin fabrikası kullanılıyor")
+
     GPIO_AVAILABLE = True
-except ImportError:
-    logger.error("gpiozero modülü bulunamadı! Lütfen şu komutu çalıştırın:")
-    logger.error("sudo apt install -y python3-gpiozero")
+    logger.info("gpiozero kütüphanesi başarıyla yüklendi")
+except ImportError as e:
+    logger.error(f"gpiozero modülü yüklenemedi: {e}")
+    logger.error("Lütfen şu komutları çalıştırın:")
+    logger.error("sudo apt install -y python3-gpiozero python3-pigpio")
+    logger.error("sudo pigpiod")  # pigpio daemon'ı başlat
     GPIO_AVAILABLE = False
 
 class MotorController:
@@ -31,15 +55,21 @@ class MotorController:
             return
 
         try:
-            # Sol motor için PWM hız kontrolü
+            # Sol motor için PWM hız kontrolü ve motor nesnesi
             self.left_ena = PWMOutputDevice(config.LEFT_MOTOR_ENA)
-            # Sol motor
-            self.left_motor = Motor(config.LEFT_MOTOR_IN1, config.LEFT_MOTOR_IN2)
+            self.left_motor = Motor(
+                forward=config.LEFT_MOTOR_IN1,
+                backward=config.LEFT_MOTOR_IN2,
+                pwm=False  # PWM'i kendimiz kontrol edeceğiz
+            )
 
-            # Sağ motor için PWM hız kontrolü
+            # Sağ motor için PWM hız kontrolü ve motor nesnesi
             self.right_ena = PWMOutputDevice(config.RIGHT_MOTOR_ENA)
-            # Sağ motor
-            self.right_motor = Motor(config.RIGHT_MOTOR_IN1, config.RIGHT_MOTOR_IN2)
+            self.right_motor = Motor(
+                forward=config.RIGHT_MOTOR_IN1,
+                backward=config.RIGHT_MOTOR_IN2,
+                pwm=False  # PWM'i kendimiz kontrol edeceğiz
+            )
 
             # Son hareket bilgisi
             self.last_movement = "stop"

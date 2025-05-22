@@ -32,9 +32,11 @@ SLOW_SPEED = 0.3     # %30 hız
 CURVE_SPEED = 0.45   # %45 hız - virajlar için
 
 # Kamera Ayarları
-CAMERA_RESOLUTION = (640, 480)
-CAMERA_FRAMERATE = 30
-CAMERA_ROTATION = 0  # Kamera açısı (derece)
+CAMERA_RESOLUTION = (640, 480)  # Çözünürlük (genişlik, yükseklik)
+CAMERA_FRAMERATE = 30           # FPS
+CAMERA_ROTATION = 0             # Kamera açısı (derece)
+CAMERA_HFLIP = False            # Yatay çevirme
+CAMERA_VFLIP = False            # Dikey çevirme
 
 # Görüntü İşleme Ayarları
 ROI_HEIGHT = 150     # İlgi alanı yüksekliği (alt kısımdan) - arttırıldı

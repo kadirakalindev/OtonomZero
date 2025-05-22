@@ -19,10 +19,15 @@ from loguru import logger
 # Picamera2 modülünü kontrol et ve içe aktar
 try:
     from picamera2 import Picamera2
+    from libcamera import Transform
     PICAMERA_AVAILABLE = True
-except ImportError:
-    logger.error("Picamera2 modülü bulunamadı! Lütfen şu komutu çalıştırın:")
+    logger.info("Picamera2 ve libcamera modülleri başarıyla içe aktarıldı.")
+except ImportError as e:
+    logger.error(f"Kamera modülü içe aktarma hatası: {e}")
+    logger.error("Picamera2 veya libcamera modülü bulunamadı! Lütfen şu komutları çalıştırın:")
+    logger.error("sudo apt update")
     logger.error("sudo apt install -y python3-picamera2 python3-libcamera")
+    logger.error("sudo apt install -y libcamera-apps")
     PICAMERA_AVAILABLE = False
 
 # Loglama ayarları
@@ -49,18 +54,45 @@ def main():
     logger.info("Kamera başlatılıyor...")
     try:
         picam2 = Picamera2()
-        camera_config = picam2.create_preview_configuration(
+
+        # Raspberry Pi 5 ve Pi Camera 3 için özel yapılandırma
+        # Daha basit bir yapılandırma kullanarak sorunları azaltalım
+        camera_config = picam2.create_still_configuration(
             main={"size": config.CAMERA_RESOLUTION, "format": "RGB888"},
-            lores={"size": (320, 240), "format": "YUV420"},
-            display="lores"
+            transform=Transform(hflip=config.CAMERA_HFLIP, vflip=config.CAMERA_VFLIP)
         )
+
+        # Alternatif yapılandırma (yukarıdaki çalışmazsa bu denenebilir)
+        # camera_config = picam2.create_preview_configuration(
+        #     main={"size": config.CAMERA_RESOLUTION, "format": "RGB888"}
+        # )
+
+        # Yapılandırmayı uygula
         picam2.configure(camera_config)
+
+        # Kamerayı başlat
         picam2.start()
-        time.sleep(2)  # Kameranın başlaması için bekle
-        logger.info("Kamera hazır.")
+
+        # Kameranın başlaması için bekle
+        time.sleep(2)
+
+        # Test görüntüsü al
+        test_frame = picam2.capture_array()
+        if test_frame is None or test_frame.size == 0:
+            raise Exception("Kamera görüntü alamıyor")
+
+        logger.info(f"Kamera hazır. Görüntü boyutu: {test_frame.shape}")
     except Exception as e:
         logger.error(f"Kamera başlatılamadı: {e}")
-        logger.error("Kamera bağlantısını ve libcamera kurulumunu kontrol edin.")
+        logger.error("Hata detayları:")
+        import traceback
+        logger.error(traceback.format_exc())
+        logger.error("\nÇözüm önerileri:")
+        logger.error("1. Kamera bağlantısını kontrol edin")
+        logger.error("2. 'sudo raspi-config' ile kamera arayüzünün etkin olduğundan emin olun")
+        logger.error("3. 'libcamera-hello' komutu ile kameranın çalıştığını doğrulayın")
+        logger.error("4. 'sudo apt install -y python3-picamera2 python3-libcamera libcamera-apps' komutunu çalıştırın")
+        logger.error("5. Raspberry Pi'yi yeniden başlatın")
         sys.exit(1)
 
     # Motor kontrolcüsü başlatma
@@ -91,7 +123,19 @@ def main():
     try:
         while True:
             # Kameradan görüntü al
-            frame = picam2.capture_array("main")
+            try:
+                # Raspberry Pi 5 ve Pi Camera 3 için uyumlu görüntü alma
+                frame = picam2.capture_array()
+
+                # Görüntü kontrolü
+                if frame is None or frame.size == 0:
+                    logger.warning("Boş kamera görüntüsü alındı, yeniden deneniyor...")
+                    time.sleep(0.1)
+                    continue
+            except Exception as e:
+                logger.error(f"Görüntü alma hatası: {e}")
+                time.sleep(0.5)
+                continue
 
             # Kare sayacını artır
             frame_count += 1

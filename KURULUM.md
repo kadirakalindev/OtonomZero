@@ -17,17 +17,24 @@ Projenin çalışması için gerekli sistem paketlerini yükleyin:
 
 ```bash
 # libcamera ve picamera2 için gerekli paketler
-sudo apt install -y python3-libcamera python3-kms++ python3-picamera2
+sudo apt install -y python3-libcamera python3-kms++ python3-picamera2 libcamera-apps
 
 # OpenCV için gerekli paketler
 sudo apt install -y python3-opencv
 
 # GPIO kontrol paketleri
-sudo apt install -y python3-gpiozero python3-rpi.gpio
+sudo apt install -y python3-gpiozero python3-pigpio python3-rpi.gpio
 
 # Diğer gerekli paketler
 sudo apt install -y python3-pip python3-numpy
+
+# pigpio daemon'ı başlat (daha iyi motor kontrolü için)
+sudo pigpiod
+# Sistem başlangıcında otomatik başlatma
+sudo systemctl enable pigpiod
 ```
+
+> **Not:** Raspberry Pi 5'te picamera2 modülünün düzgün çalışması için libcamera-apps paketi gereklidir.
 
 ## 3. Python Paketlerinin Kurulumu
 
@@ -49,15 +56,59 @@ sudo raspi-config
 
 # Kamerayı test et
 libcamera-hello
+# veya
+libcamera-jpeg -o test.jpg
 ```
+
+Eğer kamera ile ilgili sorunlar yaşıyorsanız:
+
+```bash
+# Kamera kullanıcı izinlerini kontrol et
+sudo usermod -a -G video $USER
+
+# Kamera modülünü yeniden yükle
+sudo modprobe -r bcm2835-v4l2
+sudo modprobe bcm2835-v4l2
+
+# Raspberry Pi'yi yeniden başlat
+sudo reboot
+```
+
+Raspberry Pi 5 ve Pi Camera 3 için özel notlar:
+
+1. Pi Camera 3 için doğru kablo kullandığınızdan emin olun
+2. Kamera bağlantısını Raspberry Pi kapalıyken yapın
+3. Kamera modülünün doğru takıldığından emin olun
+4. libcamera-apps paketinin kurulu olduğundan emin olun
 
 ## 5. GPIO Pinlerinin Kontrolü
 
 GPIO pinlerinin doğru çalıştığından emin olun:
 
 ```bash
-# GPIO pinlerini test et
+# pigpio daemon'ın çalıştığını kontrol et
+pgrep pigpiod
+# Eğer çalışmıyorsa başlat
+sudo pigpiod
+
+# GPIO pinlerini test et (LED örneği)
 python3 -c "from gpiozero import LED; led = LED(17); led.on(); import time; time.sleep(1); led.off()"
+
+# Motor pinlerini test et (projedeki pinleri kullanarak)
+python3 -c "from gpiozero import Motor; import time; motor = Motor(16, 18); motor.forward(); time.sleep(1); motor.stop()"
+```
+
+Eğer GPIO ile ilgili sorunlar yaşıyorsanız:
+
+```bash
+# GPIO kullanıcı izinlerini kontrol et
+sudo usermod -a -G gpio $USER
+
+# pigpio daemon'ı yeniden başlat
+sudo systemctl restart pigpiod
+
+# GPIO durumunu kontrol et
+gpio readall  # WiringPi kurulu ise
 ```
 
 ## 6. Projeyi Çalıştırma
@@ -81,8 +132,25 @@ Bu hata, libcamera modülünün doğru şekilde kurulmadığını gösterir:
 
 ```bash
 # Çözüm
-sudo apt install -y python3-libcamera
-sudo apt install -y python3-picamera2
+sudo apt update
+sudo apt install -y python3-libcamera python3-picamera2 libcamera-apps
+
+# Kamera modülünü test et
+libcamera-hello
+
+# Python'da test et
+python3 -c "from picamera2 import Picamera2; from libcamera import Transform; print('Modüller başarıyla içe aktarıldı')"
+```
+
+Eğer hata devam ederse:
+
+```bash
+# Sistem paketlerini güncelle
+sudo apt update
+sudo apt full-upgrade
+
+# Raspberry Pi'yi yeniden başlat
+sudo reboot
 ```
 
 ### "No module named 'cv2'" Hatası
@@ -100,7 +168,24 @@ GPIO kontrol modülünün doğru şekilde kurulmadığını gösterir:
 
 ```bash
 # Çözüm
-sudo apt install -y python3-gpiozero python3-rpi.gpio
+sudo apt install -y python3-gpiozero python3-pigpio python3-rpi.gpio
+
+# pigpio daemon'ı başlat
+sudo pigpiod
+sudo systemctl enable pigpiod
+
+# Python'da test et
+python3 -c "from gpiozero import LED, Motor; from gpiozero.pins.pigpio import PiGPIOFactory; print('GPIO modülleri başarıyla içe aktarıldı')"
+```
+
+### "ImportError: cannot import name 'Transform' from 'libcamera'" Hatası
+
+Bu hata, libcamera modülünün eski bir sürümünün kurulu olduğunu gösterir:
+
+```bash
+# Çözüm
+sudo apt update
+sudo apt install -y --reinstall python3-libcamera libcamera-apps
 ```
 
 ### "No module named 'loguru'" Hatası

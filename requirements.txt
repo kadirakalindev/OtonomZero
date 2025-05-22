@@ -1,10 +1,20 @@
 # Temel paketler - pip ile kurulabilir
 opencv-python>=4.5.0
 numpy>=1.20.0
-gpiozero>=1.6.0
-RPi.GPIO>=0.7.0
 loguru>=0.6.0
 
+# GPIO paketleri - pip ile kurulabilir, ancak apt ile kurulması önerilir
+gpiozero>=1.6.0
+pigpio>=1.78  # Daha iyi performans için pigpio kullanılır
+
 # Sistem paketleri - apt ile kurulmalıdır
-# sudo apt install python3-picamera2 python3-libcamera python3-opencv python3-gpiozero
-# NOT: picamera2 pip üzerinden kurulmak yerine apt ile kurulmalıdır
+# sudo apt update
+# sudo apt install -y python3-picamera2 python3-libcamera python3-opencv
+# sudo apt install -y python3-gpiozero python3-pigpio python3-rpi.gpio
+# sudo apt install -y libcamera-apps
+
+# pigpio daemon'ı başlatma
+# sudo pigpiod
+# sudo systemctl enable pigpiod  # Sistem başlangıcında otomatik başlatma
+
+# NOT: picamera2 ve libcamera modülleri pip üzerinden kurulmak yerine apt ile kurulmalıdır
