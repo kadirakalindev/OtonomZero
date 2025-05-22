@@ -1,29 +1,34 @@
 """
 Şerit takip eden ve engel algılayan robot ana programı
 Siyah zemin üzerinde beyaz şerit takibi ve renk tabanlı engel tespiti için optimize edilmiş
+Raspberry Pi 5 ve Pi Camera 3 için uyumlu hale getirilmiştir
 """
 
 import time
 import cv2
 import numpy as np
-from picamera2 import Picamera2
 import config
 from motor_controller import MotorController
 from line_detector import LineDetector
 from obstacle_detector import ObstacleDetector
 import os
+import sys
 import logging
+from loguru import logger
+
+# Picamera2 modülünü kontrol et ve içe aktar
+try:
+    from picamera2 import Picamera2
+    PICAMERA_AVAILABLE = True
+except ImportError:
+    logger.error("Picamera2 modülü bulunamadı! Lütfen şu komutu çalıştırın:")
+    logger.error("sudo apt install -y python3-picamera2 python3-libcamera")
+    PICAMERA_AVAILABLE = False
 
 # Loglama ayarları
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("robot_log.txt"),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger("OtonomZero")
+logger.remove()  # Varsayılan logger'ı kaldır
+logger.add(sys.stderr, level="INFO")  # Konsola log
+logger.add("robot_log.txt", rotation="10 MB", level="DEBUG")  # Dosyaya log
 
 def main():
     logger.info("Şerit Takip Eden Robot Başlatılıyor...")
@@ -35,18 +40,28 @@ def main():
         # Debug klasörü oluştur
         os.makedirs("debug_images", exist_ok=True)
 
+    # Kamera kontrolü
+    if not PICAMERA_AVAILABLE:
+        logger.error("Picamera2 modülü yüklenemedi. Program sonlandırılıyor.")
+        sys.exit(1)
+
     # Kamera başlatma
     logger.info("Kamera başlatılıyor...")
-    picam2 = Picamera2()
-    camera_config = picam2.create_preview_configuration(
-        main={"size": config.CAMERA_RESOLUTION, "format": "RGB888"},
-        lores={"size": (320, 240), "format": "YUV420"},
-        display="lores"
-    )
-    picam2.configure(camera_config)
-    picam2.start()
-    time.sleep(2)  # Kameranın başlaması için bekle
-    logger.info("Kamera hazır.")
+    try:
+        picam2 = Picamera2()
+        camera_config = picam2.create_preview_configuration(
+            main={"size": config.CAMERA_RESOLUTION, "format": "RGB888"},
+            lores={"size": (320, 240), "format": "YUV420"},
+            display="lores"
+        )
+        picam2.configure(camera_config)
+        picam2.start()
+        time.sleep(2)  # Kameranın başlaması için bekle
+        logger.info("Kamera hazır.")
+    except Exception as e:
+        logger.error(f"Kamera başlatılamadı: {e}")
+        logger.error("Kamera bağlantısını ve libcamera kurulumunu kontrol edin.")
+        sys.exit(1)
 
     # Motor kontrolcüsü başlatma
     logger.info("Motor kontrolcüsü başlatılıyor...")
@@ -191,12 +206,28 @@ def main():
         logger.info("Program kullanıcı tarafından durduruldu.")
     except Exception as e:
         logger.error(f"Hata oluştu: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
     finally:
         # Temizlik işlemleri
         logger.info("Temizlik yapılıyor...")
-        motors.cleanup()
-        picam2.stop()
-        cv2.destroyAllWindows()
+        try:
+            motors.cleanup()
+            logger.info("Motor GPIO pinleri temizlendi.")
+        except Exception as e:
+            logger.error(f"Motor temizleme hatası: {e}")
+
+        try:
+            picam2.stop()
+            logger.info("Kamera durduruldu.")
+        except Exception as e:
+            logger.error(f"Kamera durdurma hatası: {e}")
+
+        try:
+            cv2.destroyAllWindows()
+        except Exception as e:
+            logger.error(f"OpenCV pencere kapatma hatası: {e}")
+
         logger.info("Program sonlandırıldı.")
 
 if __name__ == "__main__":

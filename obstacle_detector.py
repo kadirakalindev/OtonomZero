@@ -1,17 +1,36 @@
 """
 Engel algılama sınıfı - Renk tabanlı engel tespiti için optimize edilmiş
+Raspberry Pi 5 için uyumlu hale getirilmiştir
 """
 
-import cv2
-import numpy as np
-import config
 import time
+import config
+import numpy as np
+from loguru import logger
+
+# OpenCV modülünü kontrol et ve içe aktar
+try:
+    import cv2
+    OPENCV_AVAILABLE = True
+except ImportError:
+    logger.error("OpenCV modülü bulunamadı! Lütfen şu komutu çalıştırın:")
+    logger.error("sudo apt install -y python3-opencv")
+    OPENCV_AVAILABLE = False
 
 class ObstacleDetector:
     def __init__(self):
         """
         Engel algılama sınıfı başlatıcı
         """
+        logger.info("Engel algılayıcı başlatılıyor...")
+
+        # OpenCV kullanılabilirliğini kontrol et
+        if not OPENCV_AVAILABLE:
+            logger.error("OpenCV modülü yüklenemedi. Engel algılama devre dışı.")
+            self.opencv_ok = False
+            return
+
+        self.opencv_ok = True
         self.frame_width = config.CAMERA_RESOLUTION[0]
         self.frame_height = config.CAMERA_RESOLUTION[1]
 
@@ -26,6 +45,8 @@ class ObstacleDetector:
         # Engel renk aralıkları
         self.color_ranges = config.OBSTACLE_COLOR_RANGES
 
+        logger.info(f"Engel algılayıcı hazır. ROI: {self.roi_top}-{self.roi_bottom}, Renk aralıkları: {len(self.color_ranges)}")
+
     def detect_obstacles(self, frame):
         """
         Görüntüden engelleri tespit eder - renk tabanlı tespit
@@ -38,84 +59,96 @@ class ObstacleDetector:
             obstacle_position: Engelin pozisyonu (sol, orta, sağ)
             processed_frame: İşlenmiş görüntü (debug için)
         """
-        # İlgi alanını (ROI) belirle - orta kısım
-        roi = frame[self.roi_top:self.roi_bottom, 0:self.frame_width]
+        # OpenCV kullanılabilirliğini kontrol et
+        if not hasattr(self, 'opencv_ok') or not self.opencv_ok:
+            logger.warning("OpenCV kullanılamıyor. Engel tespiti yapılamadı.")
+            return False, None, None
 
-        # HSV renk uzayına dönüştür
-        hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+        try:
+            # İlgi alanını (ROI) belirle - orta kısım
+            roi = frame[self.roi_top:self.roi_bottom, 0:self.frame_width]
 
-        # Engel maskelerini oluştur
-        masks = {}
-        for color_name, (lower, upper) in self.color_ranges.items():
-            lower = np.array(lower)
-            upper = np.array(upper)
-            masks[color_name] = cv2.inRange(hsv, lower, upper)
+            # HSV renk uzayına dönüştür
+            hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
 
-        # Tüm maskeleri birleştir
-        combined_mask = np.zeros_like(masks['orange'])
-        for mask in masks.values():
-            combined_mask = cv2.bitwise_or(combined_mask, mask)
+            # Engel maskelerini oluştur
+            masks = {}
+            for color_name, (lower, upper) in self.color_ranges.items():
+                lower = np.array(lower)
+                upper = np.array(upper)
+                masks[color_name] = cv2.inRange(hsv, lower, upper)
 
-        # Gürültüyü azalt
-        kernel = np.ones((5, 5), np.uint8)
-        filtered_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_OPEN, kernel)
-        filtered_mask = cv2.morphologyEx(filtered_mask, cv2.MORPH_CLOSE, kernel)
+            # Tüm maskeleri birleştir
+            combined_mask = np.zeros_like(masks['orange'])
+            for mask in masks.values():
+                combined_mask = cv2.bitwise_or(combined_mask, mask)
 
-        # Konturları bul
-        contours, _ = cv2.findContours(filtered_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            # Gürültüyü azalt
+            kernel = np.ones((5, 5), np.uint8)
+            filtered_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_OPEN, kernel)
+            filtered_mask = cv2.morphologyEx(filtered_mask, cv2.MORPH_CLOSE, kernel)
 
-        # İşlenmiş görüntüyü hazırla (debug için)
-        processed_frame = roi.copy()
+            # Konturları bul
+            contours, _ = cv2.findContours(filtered_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-        # Bölgeleri çiz
-        cv2.line(processed_frame, (self.frame_width//3, 0), (self.frame_width//3, self.roi_bottom - self.roi_top), (0, 0, 255), 2)
-        cv2.line(processed_frame, (2*self.frame_width//3, 0), (2*self.frame_width//3, self.roi_bottom - self.roi_top), (0, 0, 255), 2)
+            # İşlenmiş görüntüyü hazırla (debug için)
+            processed_frame = roi.copy()
 
-        # Engel tespiti değişkenleri
-        has_obstacle = False
-        obstacle_position = None
-        obstacle_area = 0
-        obstacle_x = 0
+            # Bölgeleri çiz
+            cv2.line(processed_frame, (self.frame_width//3, 0), (self.frame_width//3, self.roi_bottom - self.roi_top), (0, 0, 255), 2)
+            cv2.line(processed_frame, (2*self.frame_width//3, 0), (2*self.frame_width//3, self.roi_bottom - self.roi_top), (0, 0, 255), 2)
 
-        # Konturları değerlendir
-        for contour in contours:
-            area = cv2.contourArea(contour)
+            # Engel tespiti değişkenleri
+            has_obstacle = False
+            obstacle_position = None
+            obstacle_area = 0
+            obstacle_x = 0
 
-            # Minimum alan kontrolü
-            if area < config.OBSTACLE_MIN_AREA:
-                continue
+            # Konturları değerlendir
+            for contour in contours:
+                area = cv2.contourArea(contour)
 
-            # Engel tespit edildi
-            has_obstacle = True
+                # Minimum alan kontrolü
+                if area < config.OBSTACLE_MIN_AREA:
+                    continue
 
-            # Kontur etrafına dikdörtgen çiz
-            x, y, w, h = cv2.boundingRect(contour)
-            cv2.rectangle(processed_frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                # Engel tespit edildi
+                has_obstacle = True
 
-            # En büyük engeli takip et
-            if area > obstacle_area:
-                obstacle_area = area
-                obstacle_x = x + w // 2  # Engelin merkezi
+                # Kontur etrafına dikdörtgen çiz
+                x, y, w, h = cv2.boundingRect(contour)
+                cv2.rectangle(processed_frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
-        # Engel pozisyonunu belirle
-        if has_obstacle:
-            # Engelin hangi bölgede olduğunu belirle
-            if obstacle_x < self.frame_width // 3:
-                obstacle_position = "left"
-            elif obstacle_x < 2 * self.frame_width // 3:
-                obstacle_position = "center"
-            else:
-                obstacle_position = "right"
+                # En büyük engeli takip et
+                if area > obstacle_area:
+                    obstacle_area = area
+                    obstacle_x = x + w // 2  # Engelin merkezi
 
-            # Engel bilgilerini görüntüye ekle
-            cv2.putText(processed_frame, f"Obstacle: {obstacle_position}", (10, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            # Engel pozisyonunu belirle
+            if has_obstacle:
+                # Engelin hangi bölgede olduğunu belirle
+                if obstacle_x < self.frame_width // 3:
+                    obstacle_position = "left"
+                elif obstacle_x < 2 * self.frame_width // 3:
+                    obstacle_position = "center"
+                else:
+                    obstacle_position = "right"
 
-            # Son tespit bilgilerini güncelle
-            self.last_detection_time = time.time()
-            self.last_obstacle_position = obstacle_position
+                # Engel bilgilerini görüntüye ekle
+                cv2.putText(processed_frame, f"Obstacle: {obstacle_position}", (10, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
-        return has_obstacle, obstacle_position, processed_frame
+                # Son tespit bilgilerini güncelle
+                self.last_detection_time = time.time()
+                self.last_obstacle_position = obstacle_position
+
+                logger.debug(f"Engel tespit edildi: {obstacle_position}, Alan: {obstacle_area}")
+
+            return has_obstacle, obstacle_position, processed_frame
+
+        except Exception as e:
+            logger.error(f"Engel tespiti sırasında hata: {e}")
+            return False, None, None
 
     def get_avoidance_direction(self, obstacle_position):
         """

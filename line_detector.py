@@ -1,17 +1,36 @@
 """
 Şerit algılama sınıfı - Siyah zemin üzerinde beyaz şerit için optimize edilmiş
+Raspberry Pi 5 için uyumlu hale getirilmiştir
 """
 
-import cv2
-import numpy as np
-import config
 import time
+import config
+import numpy as np
+from loguru import logger
+
+# OpenCV modülünü kontrol et ve içe aktar
+try:
+    import cv2
+    OPENCV_AVAILABLE = True
+except ImportError:
+    logger.error("OpenCV modülü bulunamadı! Lütfen şu komutu çalıştırın:")
+    logger.error("sudo apt install -y python3-opencv")
+    OPENCV_AVAILABLE = False
 
 class LineDetector:
     def __init__(self):
         """
         Şerit algılama sınıfı başlatıcı
         """
+        logger.info("Şerit algılayıcı başlatılıyor...")
+
+        # OpenCV kullanılabilirliğini kontrol et
+        if not OPENCV_AVAILABLE:
+            logger.error("OpenCV modülü yüklenemedi. Şerit algılama devre dışı.")
+            self.opencv_ok = False
+            return
+
+        self.opencv_ok = True
         self.last_position = None
         self.last_detection_time = time.time()
         self.frame_width = config.CAMERA_RESOLUTION[0]
@@ -26,6 +45,8 @@ class LineDetector:
         # 40cm şerit genişliği, 100cm pist genişliği, 640px görüntü genişliği
         self.line_width_px = int((config.LANE_WIDTH / config.TRACK_WIDTH) * self.frame_width)
 
+        logger.info(f"Şerit algılayıcı hazır. Çözünürlük: {self.frame_width}x{config.CAMERA_RESOLUTION[1]}, ROI yüksekliği: {self.roi_height}")
+
     def detect_line(self, frame):
         """
         Görüntüden şerit pozisyonunu tespit eder
@@ -37,46 +58,56 @@ class LineDetector:
             line_position: Şeridin merkeze göre pozisyonu (negatif: sol, pozitif: sağ)
             processed_frame: İşlenmiş görüntü (debug için)
         """
-        # Görüntüyü gri tonlamaya çevir
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        # OpenCV kullanılabilirliğini kontrol et
+        if not hasattr(self, 'opencv_ok') or not self.opencv_ok:
+            logger.warning("OpenCV kullanılamıyor. Şerit tespiti yapılamadı.")
+            return None, None
 
-        # İlgi alanını (ROI) belirle - alt kısım
-        height, width = gray.shape
-        roi = gray[height - self.roi_height:height, 0:width]
+        try:
+            # Görüntüyü gri tonlamaya çevir
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        # Görüntüyü bulanıklaştır
-        blur = cv2.GaussianBlur(roi, (5, 5), 0)
+            # İlgi alanını (ROI) belirle - alt kısım
+            height, width = gray.shape
+            roi = gray[height - self.roi_height:height, 0:width]
 
-        # İkili (binary) görüntüye çevir - beyaz şerit için normal threshold
-        _, binary = cv2.threshold(blur, config.BINARY_THRESHOLD, 255, cv2.THRESH_BINARY)
+            # Görüntüyü bulanıklaştır
+            blur = cv2.GaussianBlur(roi, (5, 5), 0)
 
-        # Gürültüyü azalt
-        kernel = np.ones((3, 3), np.uint8)
-        binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
-        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+            # İkili (binary) görüntüye çevir - beyaz şerit için normal threshold
+            _, binary = cv2.threshold(blur, config.BINARY_THRESHOLD, 255, cv2.THRESH_BINARY)
 
-        # Şerit pozisyonunu bul
-        line_position = self._find_line_position(binary)
+            # Gürültüyü azalt
+            kernel = np.ones((3, 3), np.uint8)
+            binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
+            binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
 
-        # İşlenmiş görüntüyü hazırla (debug için)
-        processed_frame = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
+            # Şerit pozisyonunu bul
+            line_position = self._find_line_position(binary)
 
-        # Merkez çizgisini çiz
-        cv2.line(processed_frame, (self.frame_center, 0), (self.frame_center, self.roi_height), (0, 0, 255), 2)
+            # İşlenmiş görüntüyü hazırla (debug için)
+            processed_frame = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
 
-        # Tespit edilen şerit pozisyonunu çiz
-        if line_position is not None:
-            position = self.frame_center + line_position
-            cv2.line(processed_frame, (position, 0), (position, self.roi_height), (0, 255, 0), 2)
+            # Merkez çizgisini çiz
+            cv2.line(processed_frame, (self.frame_center, 0), (self.frame_center, self.roi_height), (0, 0, 255), 2)
 
-            # Şerit genişliğini göster
-            half_width = self.line_width_px // 2
-            cv2.rectangle(processed_frame,
-                         (position - half_width, self.roi_height // 2),
-                         (position + half_width, self.roi_height // 2 + 20),
-                         (0, 255, 255), 2)
+            # Tespit edilen şerit pozisyonunu çiz
+            if line_position is not None:
+                position = self.frame_center + line_position
+                cv2.line(processed_frame, (position, 0), (position, self.roi_height), (0, 255, 0), 2)
 
-        return line_position, processed_frame
+                # Şerit genişliğini göster
+                half_width = self.line_width_px // 2
+                cv2.rectangle(processed_frame,
+                            (position - half_width, self.roi_height // 2),
+                            (position + half_width, self.roi_height // 2 + 20),
+                            (0, 255, 255), 2)
+
+            return line_position, processed_frame
+
+        except Exception as e:
+            logger.error(f"Şerit tespiti sırasında hata: {e}")
+            return None, None
 
     def _find_line_position(self, binary_image):
         """
