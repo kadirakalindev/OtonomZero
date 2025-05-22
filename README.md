@@ -50,28 +50,39 @@ Bu proje, Raspberry Pi 5 ve Raspberry Pi Cam 3 kullanarak siyah zemin üzerinde 
 
 ## Kurulum
 
-1. Gerekli kütüphaneleri yükleyin:
+Detaylı kurulum adımları için [KURULUM.md](KURULUM.md) dosyasını inceleyiniz.
+
+Kısaca:
+
+1. Sistem paketlerini yükleyin:
 
 ```bash
-pip install -r requirements.txt
+sudo apt update
+sudo apt install -y python3-libcamera python3-picamera2 python3-opencv python3-gpiozero python3-rpi.gpio
 ```
 
-2. Raspberry Pi kamera modülünü etkinleştirin:
+2. Python paketlerini yükleyin:
+
+```bash
+pip3 install -r requirements.txt
+```
+
+3. Raspberry Pi kamera modülünü etkinleştirin:
 
 ```bash
 sudo raspi-config
-```
-
-3. Debug modu için çevre değişkeni ayarlayın (opsiyonel):
-
-```bash
-export DEBUG_MODE=true
+# Interface Options -> Camera -> Enable seçin
 ```
 
 4. Programı çalıştırın:
 
 ```bash
-python main.py
+# Normal mod
+python3 main.py
+
+# Debug modu
+export DEBUG_MODE=true
+python3 main.py
 ```
 
 ## Proje Yapısı
