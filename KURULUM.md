@@ -92,11 +92,29 @@ pgrep pigpiod
 sudo pigpiod
 
 # GPIO pinlerini test et (LED örneği)
+# BCM pin numaralandırması ile
 python3 -c "from gpiozero import LED; led = LED(17); led.on(); import time; time.sleep(1); led.off()"
 
+# BOARD pin numaralandırması ile (fiziksel pin numaraları)
+python3 -c "from gpiozero import LED; from gpiozero.pins.rpigpio import RPiGPIOFactory; factory = RPiGPIOFactory(pin_mode='BOARD'); led = LED(11, pin_factory=factory); led.on(); import time; time.sleep(1); led.off()"
+
 # Motor pinlerini test et (projedeki pinleri kullanarak)
-python3 -c "from gpiozero import Motor; import time; motor = Motor(16, 18); motor.forward(); time.sleep(1); motor.stop()"
+# BOARD pin numaralandırması ile (fiziksel pin numaraları)
+python3 -c "from gpiozero import Motor; from gpiozero.pins.rpigpio import RPiGPIOFactory; import time; factory = RPiGPIOFactory(pin_mode='BOARD'); motor = Motor(16, 18, pin_factory=factory); motor.forward(); time.sleep(1); motor.stop()"
 ```
+
+> **Not:** Projemiz fiziksel pin numaralarını (BOARD) kullanmaktadır. BCM ve BOARD pin numaralandırması arasındaki farkı anlamak için aşağıdaki tabloyu kullanabilirsiniz:
+
+| Fiziksel Pin (BOARD) | BCM Pin |
+|----------------------|---------|
+| 12                   | GPIO18  |
+| 16                   | GPIO23  |
+| 18                   | GPIO24  |
+| 32                   | GPIO12  |
+| 36                   | GPIO16  |
+| 38                   | GPIO20  |
+
+Tam pin haritası için: `pinout` komutunu çalıştırabilir veya [Raspberry Pi GPIO Pinout](https://pinout.xyz/) web sitesini ziyaret edebilirsiniz.
 
 Eğer GPIO ile ilgili sorunlar yaşıyorsanız:
 
@@ -195,7 +213,28 @@ sudo pigpiod
 sudo systemctl enable pigpiod
 
 # Python'da test et
-python3 -c "from gpiozero import LED, Motor; from gpiozero.pins.pigpio import PiGPIOFactory; print('GPIO modülleri başarıyla içe aktarıldı')"
+python3 -c "from gpiozero import LED, Motor; from gpiozero.pins.rpigpio import RPiGPIOFactory; print('GPIO modülleri başarıyla içe aktarıldı')"
+```
+
+### "MotorController object has no attribute 'last_movement'" Hatası
+
+Bu hata, motor kontrolcüsü sınıfında `last_movement` özelliğinin tanımlanmamış olmasından kaynaklanır:
+
+```bash
+# Çözüm
+# motor_controller.py dosyasını düzenleyerek hata kontrolü ekleyin
+# veya aşağıdaki komutu çalıştırın:
+
+python3 -c "from motor_controller import MotorController; m = MotorController(); print('Motor kontrolcüsü başarıyla oluşturuldu')"
+```
+
+### "Pin numbering system not specified" Hatası
+
+Bu hata, pin numaralandırma sisteminin (BCM veya BOARD) belirtilmediğini gösterir:
+
+```bash
+# Çözüm - BOARD pin numaralandırması kullanmak için:
+python3 -c "from gpiozero import LED; from gpiozero.pins.rpigpio import RPiGPIOFactory; factory = RPiGPIOFactory(pin_mode='BOARD'); led = LED(11, pin_factory=factory); print('BOARD pin numaralandırması başarıyla ayarlandı')"
 ```
 
 ### "ImportError: cannot import name 'Transform' from 'libcamera'" Hatası

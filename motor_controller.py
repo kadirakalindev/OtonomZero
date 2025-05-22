@@ -23,13 +23,23 @@ try:
         # pigpio daemon'ın çalıştığından emin ol
         import subprocess
         subprocess.run(["pgrep", "pigpiod"], check=True)
-        # Eğer çalışıyorsa, pigpio fabrikasını kullan
-        factory = PiGPIOFactory()
+
+        # BOARD pin numaralandırması kullan (fiziksel pin numaraları)
+        from gpiozero.pins.rpigpio import RPiGPIOFactory
+        factory = RPiGPIOFactory(pin_mode="BOARD")  # BOARD pin numaralandırması kullan
         Device.pin_factory = factory
-        logger.info("PiGPIO pin fabrikası kullanılıyor (daha iyi performans)")
+        logger.info("RPiGPIO pin fabrikası BOARD pin numaralandırması ile kullanılıyor")
     except (ImportError, subprocess.CalledProcessError):
-        # pigpio daemon çalışmıyorsa, varsayılan fabrikayı kullan
-        logger.info("Varsayılan pin fabrikası kullanılıyor")
+        # pigpio daemon çalışmıyorsa veya hata varsa, varsayılan fabrikayı kullan
+        # Ancak yine de BOARD pin numaralandırması kullan
+        try:
+            from gpiozero.pins.rpigpio import RPiGPIOFactory
+            factory = RPiGPIOFactory(pin_mode="BOARD")  # BOARD pin numaralandırması kullan
+            Device.pin_factory = factory
+            logger.info("Varsayılan RPiGPIO fabrikası BOARD pin numaralandırması ile kullanılıyor")
+        except Exception as e:
+            logger.warning(f"Pin fabrikası ayarlanamadı: {e}")
+            logger.info("Varsayılan pin fabrikası kullanılıyor")
 
     GPIO_AVAILABLE = True
     logger.info("gpiozero kütüphanesi başarıyla yüklendi")
@@ -52,6 +62,10 @@ class MotorController:
         if not GPIO_AVAILABLE:
             logger.error("GPIO modülleri yüklenemedi. Motor kontrolü devre dışı.")
             self.gpio_ok = False
+            # Hata durumunda bile temel özellikleri tanımla
+            self.last_movement = "stop"
+            self.last_left_speed = 0
+            self.last_right_speed = 0
             return
 
         try:
@@ -98,6 +112,13 @@ class MotorController:
             logger.warning("GPIO kullanılamıyor. Motor hızları ayarlanamadı.")
             return
 
+        # last_speed özelliklerinin tanımlı olduğundan emin ol
+        if not hasattr(self, 'last_left_speed'):
+            self.last_left_speed = 0
+
+        if not hasattr(self, 'last_right_speed'):
+            self.last_right_speed = 0
+
         # Hız değerlerini sınırla (0.0 - 1.0)
         left_speed = max(0.0, min(1.0, left_speed))
         right_speed = max(0.0, min(1.0, right_speed))
@@ -109,16 +130,19 @@ class MotorController:
 
         try:
             # PWM değerlerini ayarla
-            self.left_ena.value = left_speed
-            self.right_ena.value = right_speed
+            if hasattr(self, 'left_ena') and hasattr(self, 'right_ena'):
+                self.left_ena.value = left_speed
+                self.right_ena.value = right_speed
 
-            # Son hızları güncelle
-            self.last_left_speed = left_speed
-            self.last_right_speed = right_speed
+                # Son hızları güncelle
+                self.last_left_speed = left_speed
+                self.last_right_speed = right_speed
 
-            # Debug log
-            if left_speed > 0 or right_speed > 0:
-                logger.debug(f"Motor hızları: Sol: {left_speed:.2f}, Sağ: {right_speed:.2f}")
+                # Debug log
+                if left_speed > 0 or right_speed > 0:
+                    logger.debug(f"Motor hızları: Sol: {left_speed:.2f}, Sağ: {right_speed:.2f}")
+            else:
+                logger.warning("Motor PWM nesneleri tanımlı değil")
         except Exception as e:
             logger.error(f"Motor hızları ayarlanırken hata: {e}")
 
@@ -129,13 +153,25 @@ class MotorController:
         Args:
             speed (float): Motor hızı (0.0 - 1.0)
         """
+        # GPIO kullanılabilirliğini kontrol et
+        if not hasattr(self, 'gpio_ok') or not self.gpio_ok:
+            logger.warning("GPIO kullanılamıyor. İleri hareket yapılamadı.")
+            return
+
+        # last_movement özelliğinin tanımlı olduğundan emin ol
+        if not hasattr(self, 'last_movement'):
+            self.last_movement = "stop"
+
         if self.last_movement != "forward":
             logger.debug(f"İleri hareket başlatılıyor. Hız: {speed}")
             self.last_movement = "forward"
 
-        self.set_speeds(speed, speed)
-        self.left_motor.forward()
-        self.right_motor.forward()
+        try:
+            self.set_speeds(speed, speed)
+            self.left_motor.forward()
+            self.right_motor.forward()
+        except Exception as e:
+            logger.error(f"İleri hareket hatası: {e}")
 
     def backward(self, speed=config.DEFAULT_SPEED):
         """
@@ -144,13 +180,25 @@ class MotorController:
         Args:
             speed (float): Motor hızı (0.0 - 1.0)
         """
+        # GPIO kullanılabilirliğini kontrol et
+        if not hasattr(self, 'gpio_ok') or not self.gpio_ok:
+            logger.warning("GPIO kullanılamıyor. Geri hareket yapılamadı.")
+            return
+
+        # last_movement özelliğinin tanımlı olduğundan emin ol
+        if not hasattr(self, 'last_movement'):
+            self.last_movement = "stop"
+
         if self.last_movement != "backward":
             logger.debug(f"Geri hareket başlatılıyor. Hız: {speed}")
             self.last_movement = "backward"
 
-        self.set_speeds(speed, speed)
-        self.left_motor.backward()
-        self.right_motor.backward()
+        try:
+            self.set_speeds(speed, speed)
+            self.left_motor.backward()
+            self.right_motor.backward()
+        except Exception as e:
+            logger.error(f"Geri hareket hatası: {e}")
 
     def turn_left(self, speed=config.TURN_SPEED):
         """
@@ -159,13 +207,25 @@ class MotorController:
         Args:
             speed (float): Motor hızı (0.0 - 1.0)
         """
+        # GPIO kullanılabilirliğini kontrol et
+        if not hasattr(self, 'gpio_ok') or not self.gpio_ok:
+            logger.warning("GPIO kullanılamıyor. Sola dönüş yapılamadı.")
+            return
+
+        # last_movement özelliğinin tanımlı olduğundan emin ol
+        if not hasattr(self, 'last_movement'):
+            self.last_movement = "stop"
+
         if self.last_movement != "turn_left":
             logger.debug(f"Sola dönüş başlatılıyor. Hız: {speed}")
             self.last_movement = "turn_left"
 
-        self.set_speeds(0, speed)
-        self.left_motor.backward()
-        self.right_motor.forward()
+        try:
+            self.set_speeds(0, speed)
+            self.left_motor.backward()
+            self.right_motor.forward()
+        except Exception as e:
+            logger.error(f"Sola dönüş hatası: {e}")
 
     def turn_right(self, speed=config.TURN_SPEED):
         """
@@ -174,13 +234,25 @@ class MotorController:
         Args:
             speed (float): Motor hızı (0.0 - 1.0)
         """
+        # GPIO kullanılabilirliğini kontrol et
+        if not hasattr(self, 'gpio_ok') or not self.gpio_ok:
+            logger.warning("GPIO kullanılamıyor. Sağa dönüş yapılamadı.")
+            return
+
+        # last_movement özelliğinin tanımlı olduğundan emin ol
+        if not hasattr(self, 'last_movement'):
+            self.last_movement = "stop"
+
         if self.last_movement != "turn_right":
             logger.debug(f"Sağa dönüş başlatılıyor. Hız: {speed}")
             self.last_movement = "turn_right"
 
-        self.set_speeds(speed, 0)
-        self.left_motor.forward()
-        self.right_motor.backward()
+        try:
+            self.set_speeds(speed, 0)
+            self.left_motor.forward()
+            self.right_motor.backward()
+        except Exception as e:
+            logger.error(f"Sağa dönüş hatası: {e}")
 
     def curve_left(self, speed=config.CURVE_SPEED):
         """
@@ -189,15 +261,27 @@ class MotorController:
         Args:
             speed (float): Motor hızı (0.0 - 1.0)
         """
+        # GPIO kullanılabilirliğini kontrol et
+        if not hasattr(self, 'gpio_ok') or not self.gpio_ok:
+            logger.warning("GPIO kullanılamıyor. Sola kavis yapılamadı.")
+            return
+
+        # last_movement özelliğinin tanımlı olduğundan emin ol
+        if not hasattr(self, 'last_movement'):
+            self.last_movement = "stop"
+
         if self.last_movement != "curve_left":
             logger.debug(f"Sola kavis başlatılıyor. Hız: {speed}")
             self.last_movement = "curve_left"
 
-        # Sola kavis için sol motor hızını azalt
-        left_speed = speed * 0.4  # Daha yumuşak dönüş için 0.3 yerine 0.4
-        self.set_speeds(left_speed, speed)
-        self.left_motor.forward()
-        self.right_motor.forward()
+        try:
+            # Sola kavis için sol motor hızını azalt
+            left_speed = speed * 0.4  # Daha yumuşak dönüş için 0.3 yerine 0.4
+            self.set_speeds(left_speed, speed)
+            self.left_motor.forward()
+            self.right_motor.forward()
+        except Exception as e:
+            logger.error(f"Sola kavis hatası: {e}")
 
     def curve_right(self, speed=config.CURVE_SPEED):
         """
@@ -206,27 +290,52 @@ class MotorController:
         Args:
             speed (float): Motor hızı (0.0 - 1.0)
         """
+        # GPIO kullanılabilirliğini kontrol et
+        if not hasattr(self, 'gpio_ok') or not self.gpio_ok:
+            logger.warning("GPIO kullanılamıyor. Sağa kavis yapılamadı.")
+            return
+
+        # last_movement özelliğinin tanımlı olduğundan emin ol
+        if not hasattr(self, 'last_movement'):
+            self.last_movement = "stop"
+
         if self.last_movement != "curve_right":
             logger.debug(f"Sağa kavis başlatılıyor. Hız: {speed}")
             self.last_movement = "curve_right"
 
-        # Sağa kavis için sağ motor hızını azalt
-        right_speed = speed * 0.4  # Daha yumuşak dönüş için 0.3 yerine 0.4
-        self.set_speeds(speed, right_speed)
-        self.left_motor.forward()
-        self.right_motor.forward()
+        try:
+            # Sağa kavis için sağ motor hızını azalt
+            right_speed = speed * 0.4  # Daha yumuşak dönüş için 0.3 yerine 0.4
+            self.set_speeds(speed, right_speed)
+            self.left_motor.forward()
+            self.right_motor.forward()
+        except Exception as e:
+            logger.error(f"Sağa kavis hatası: {e}")
 
     def stop(self):
         """
         Motorları durdur
         """
+        # GPIO kullanılabilirliğini kontrol et
+        if not hasattr(self, 'gpio_ok') or not self.gpio_ok:
+            logger.warning("GPIO kullanılamıyor. Motorlar durdurulamadı.")
+            return
+
+        # last_movement özelliğinin tanımlı olduğundan emin ol
+        if not hasattr(self, 'last_movement'):
+            self.last_movement = "stop"
+            return
+
         if self.last_movement != "stop":
             logger.debug("Motorlar durduruluyor")
             self.last_movement = "stop"
 
-        self.set_speeds(0, 0)
-        self.left_motor.stop()
-        self.right_motor.stop()
+        try:
+            self.set_speeds(0, 0)
+            self.left_motor.stop()
+            self.right_motor.stop()
+        except Exception as e:
+            logger.error(f"Motor durdurma hatası: {e}")
 
     def smooth_stop(self, duration=1.0):
         """
@@ -235,27 +344,50 @@ class MotorController:
         Args:
             duration (float): Durma süresi (saniye)
         """
-        logger.debug(f"Kademeli durma başlatılıyor. Süre: {duration} saniye")
-
-        # Mevcut hızları al
-        left_speed = self.last_left_speed
-        right_speed = self.last_right_speed
-
-        # Hızlar zaten sıfırsa bir şey yapma
-        if left_speed == 0 and right_speed == 0:
+        # GPIO kullanılabilirliğini kontrol et
+        if not hasattr(self, 'gpio_ok') or not self.gpio_ok:
+            logger.warning("GPIO kullanılamıyor. Kademeli durma yapılamadı.")
             return
 
-        # Kademeli olarak hızı azalt
-        steps = 10
-        step_time = duration / steps
+        # last_movement ve last_speed özelliklerinin tanımlı olduğundan emin ol
+        if not hasattr(self, 'last_movement'):
+            self.last_movement = "stop"
 
-        for i in range(steps):
-            factor = 1.0 - ((i + 1) / steps)
-            self.set_speeds(left_speed * factor, right_speed * factor)
-            time.sleep(step_time)
+        if not hasattr(self, 'last_left_speed'):
+            self.last_left_speed = 0
 
-        # Tamamen durdur
-        self.stop()
+        if not hasattr(self, 'last_right_speed'):
+            self.last_right_speed = 0
+
+        logger.debug(f"Kademeli durma başlatılıyor. Süre: {duration} saniye")
+
+        try:
+            # Mevcut hızları al
+            left_speed = self.last_left_speed
+            right_speed = self.last_right_speed
+
+            # Hızlar zaten sıfırsa bir şey yapma
+            if left_speed == 0 and right_speed == 0:
+                return
+
+            # Kademeli olarak hızı azalt
+            steps = 10
+            step_time = duration / steps
+
+            for i in range(steps):
+                factor = 1.0 - ((i + 1) / steps)
+                self.set_speeds(left_speed * factor, right_speed * factor)
+                time.sleep(step_time)
+
+            # Tamamen durdur
+            self.stop()
+        except Exception as e:
+            logger.error(f"Kademeli durma hatası: {e}")
+            # Hata durumunda normal durdurma dene
+            try:
+                self.stop()
+            except:
+                pass
 
     def cleanup(self):
         """
@@ -268,11 +400,22 @@ class MotorController:
 
         logger.info("Motor GPIO pinleri temizleniyor")
         try:
+            # Önce motorları durdur
             self.stop()
-            self.left_ena.close()
-            self.right_ena.close()
-            self.left_motor.close()
-            self.right_motor.close()
+
+            # Motor ve PWM nesnelerinin tanımlı olduğundan emin ol
+            if hasattr(self, 'left_ena'):
+                self.left_ena.close()
+
+            if hasattr(self, 'right_ena'):
+                self.right_ena.close()
+
+            if hasattr(self, 'left_motor'):
+                self.left_motor.close()
+
+            if hasattr(self, 'right_motor'):
+                self.right_motor.close()
+
             logger.info("Motor GPIO pinleri temizlendi")
         except Exception as e:
             logger.error(f"GPIO temizleme hatası: {e}")
