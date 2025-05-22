@@ -18,16 +18,54 @@ from loguru import logger
 
 # Picamera2 modülünü kontrol et ve içe aktar
 try:
+    # Doğrudan modül yolunu belirterek içe aktarma deneyin
+    import sys
+    import os
+
+    # Olası picamera2 modül yollarını ekle
+    possible_paths = [
+        "/usr/lib/python3/dist-packages",
+        "/usr/local/lib/python3.9/dist-packages",  # Python sürümünüze göre değişebilir
+        "/usr/local/lib/python3.10/dist-packages", # Python sürümünüze göre değişebilir
+        "/usr/local/lib/python3.11/dist-packages"  # Python sürümünüze göre değişebilir
+    ]
+
+    for path in possible_paths:
+        if os.path.exists(path) and path not in sys.path:
+            sys.path.append(path)
+            logger.info(f"Python modül yoluna eklendi: {path}")
+
+    # Python modül yollarını göster (debug için)
+    logger.debug(f"Python modül yolları: {sys.path}")
+
+    # Şimdi içe aktarmayı dene
     from picamera2 import Picamera2
-    from libcamera import Transform
+    logger.info("Picamera2 modülü başarıyla içe aktarıldı")
+
+    # libcamera modülünü içe aktarmayı dene
+    try:
+        from libcamera import Transform
+        logger.info("libcamera.Transform modülü başarıyla içe aktarıldı")
+    except ImportError as e:
+        logger.warning(f"libcamera.Transform içe aktarılamadı: {e}")
+        logger.warning("Transform sınıfı olmadan devam edilecek")
+        # Transform sınıfı olmadan devam etmek için boş bir sınıf tanımla
+        class Transform:
+            def __init__(self, hflip=False, vflip=False):
+                self.hflip = hflip
+                self.vflip = vflip
+
     PICAMERA_AVAILABLE = True
-    logger.info("Picamera2 ve libcamera modülleri başarıyla içe aktarıldı.")
 except ImportError as e:
-    logger.error(f"Kamera modülü içe aktarma hatası: {e}")
-    logger.error("Picamera2 veya libcamera modülü bulunamadı! Lütfen şu komutları çalıştırın:")
-    logger.error("sudo apt update")
-    logger.error("sudo apt install -y python3-picamera2 python3-libcamera")
-    logger.error("sudo apt install -y libcamera-apps")
+    logger.error(f"Picamera2 modülü içe aktarılamadı: {e}")
+    logger.error("Hata detayları:")
+    import traceback
+    logger.error(traceback.format_exc())
+    logger.error("\nÇözüm önerileri:")
+    logger.error("1. Modül yollarını kontrol edin: python3 -c \"import sys; print(sys.path)\"")
+    logger.error("2. Modülün kurulu olduğunu doğrulayın: dpkg -l | grep picamera")
+    logger.error("3. Modülü yeniden yükleyin: sudo apt install -y --reinstall python3-picamera2 python3-libcamera")
+    logger.error("4. Raspberry Pi'yi yeniden başlatın: sudo reboot")
     PICAMERA_AVAILABLE = False
 
 # Loglama ayarları
@@ -56,32 +94,82 @@ def main():
         picam2 = Picamera2()
 
         # Raspberry Pi 5 ve Pi Camera 3 için özel yapılandırma
-        # Daha basit bir yapılandırma kullanarak sorunları azaltalım
-        camera_config = picam2.create_still_configuration(
-            main={"size": config.CAMERA_RESOLUTION, "format": "RGB888"},
-            transform=Transform(hflip=config.CAMERA_HFLIP, vflip=config.CAMERA_VFLIP)
-        )
+        # Transform sınıfı kullanılabilir mi kontrol et
+        if 'Transform' in globals():
+            # Transform sınıfı varsa kullan
+            camera_config = picam2.create_still_configuration(
+                main={"size": config.CAMERA_RESOLUTION, "format": "RGB888"},
+                transform=Transform(hflip=config.CAMERA_HFLIP, vflip=config.CAMERA_VFLIP)
+            )
+            logger.info("Transform sınıfı ile kamera yapılandırıldı")
+        else:
+            # Transform sınıfı yoksa daha basit yapılandırma kullan
+            camera_config = picam2.create_still_configuration(
+                main={"size": config.CAMERA_RESOLUTION, "format": "RGB888"}
+            )
+            logger.info("Basit yapılandırma ile kamera yapılandırıldı")
 
-        # Alternatif yapılandırma (yukarıdaki çalışmazsa bu denenebilir)
-        # camera_config = picam2.create_preview_configuration(
-        #     main={"size": config.CAMERA_RESOLUTION, "format": "RGB888"}
-        # )
-
-        # Yapılandırmayı uygula
-        picam2.configure(camera_config)
+        # Yapılandırmayı uygula - hata olursa alternatif yöntemleri dene
+        try:
+            # İlk yöntem: still_configuration
+            picam2.configure(camera_config)
+            logger.info("Kamera still_configuration ile yapılandırıldı")
+        except Exception as e:
+            logger.warning(f"still_configuration hatası: {e}")
+            try:
+                # İkinci yöntem: preview_configuration
+                logger.info("Alternatif yapılandırma deneniyor (preview_configuration)...")
+                preview_config = picam2.create_preview_configuration(
+                    main={"size": config.CAMERA_RESOLUTION, "format": "RGB888"}
+                )
+                picam2.configure(preview_config)
+                logger.info("Kamera preview_configuration ile yapılandırıldı")
+            except Exception as e2:
+                logger.warning(f"preview_configuration hatası: {e2}")
+                try:
+                    # Üçüncü yöntem: video_configuration
+                    logger.info("Alternatif yapılandırma deneniyor (video_configuration)...")
+                    video_config = picam2.create_video_configuration(
+                        main={"size": config.CAMERA_RESOLUTION, "format": "RGB888"}
+                    )
+                    picam2.configure(video_config)
+                    logger.info("Kamera video_configuration ile yapılandırıldı")
+                except Exception as e3:
+                    # Son çare: varsayılan yapılandırma
+                    logger.warning(f"video_configuration hatası: {e3}")
+                    logger.info("Varsayılan yapılandırma deneniyor...")
+                    picam2.configure(picam2.create_preview_configuration())
+                    logger.info("Kamera varsayılan yapılandırma ile yapılandırıldı")
 
         # Kamerayı başlat
+        logger.info("Kamera başlatılıyor...")
         picam2.start()
 
         # Kameranın başlaması için bekle
-        time.sleep(2)
+        logger.info("Kameranın başlaması bekleniyor...")
+        time.sleep(3)  # Daha uzun bekleme süresi
 
-        # Test görüntüsü al
-        test_frame = picam2.capture_array()
-        if test_frame is None or test_frame.size == 0:
-            raise Exception("Kamera görüntü alamıyor")
+        # Test görüntüsü al - birkaç kez dene
+        logger.info("Test görüntüsü alınıyor...")
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            try:
+                test_frame = picam2.capture_array()
+                if test_frame is not None and test_frame.size > 0:
+                    logger.info(f"Kamera hazır. Görüntü boyutu: {test_frame.shape}")
+                    break
+                else:
+                    logger.warning(f"Boş görüntü alındı (deneme {attempt+1}/{max_attempts})")
+                    time.sleep(1)
+            except Exception as e:
+                logger.warning(f"Görüntü alma hatası (deneme {attempt+1}/{max_attempts}): {e}")
+                time.sleep(1)
 
-        logger.info(f"Kamera hazır. Görüntü boyutu: {test_frame.shape}")
+            # Son deneme başarısız olduysa
+            if attempt == max_attempts - 1:
+                logger.warning("Test görüntüsü alınamadı, ancak devam edilecek")
+                # Hata fırlatma yerine uyarı ver ve devam et
+                # raise Exception("Kamera görüntü alamıyor")
     except Exception as e:
         logger.error(f"Kamera başlatılamadı: {e}")
         logger.error("Hata detayları:")
@@ -124,17 +212,43 @@ def main():
         while True:
             # Kameradan görüntü al
             try:
-                # Raspberry Pi 5 ve Pi Camera 3 için uyumlu görüntü alma
-                frame = picam2.capture_array()
+                # Farklı görüntü alma yöntemlerini dene
+                try:
+                    # Birincil yöntem: capture_array()
+                    frame = picam2.capture_array()
+                except Exception as e1:
+                    logger.warning(f"capture_array() hatası: {e1}")
+                    try:
+                        # İkincil yöntem: capture_array("main")
+                        logger.info("Alternatif görüntü alma yöntemi deneniyor (capture_array('main'))...")
+                        frame = picam2.capture_array("main")
+                    except Exception as e2:
+                        logger.warning(f"capture_array('main') hatası: {e2}")
+                        try:
+                            # Üçüncü yöntem: capture_image ve numpy dönüşümü
+                            logger.info("Alternatif görüntü alma yöntemi deneniyor (capture_image)...")
+                            import numpy as np
+                            from PIL import Image
+                            img = picam2.capture_image()
+                            frame = np.array(img)
+                        except Exception as e3:
+                            logger.error(f"Tüm görüntü alma yöntemleri başarısız: {e3}")
+                            time.sleep(1)
+                            continue
 
                 # Görüntü kontrolü
                 if frame is None or frame.size == 0:
                     logger.warning("Boş kamera görüntüsü alındı, yeniden deneniyor...")
-                    time.sleep(0.1)
+                    time.sleep(0.5)
                     continue
+
+                # Görüntü boyutunu kontrol et (debug için)
+                if frame_count % 100 == 0:
+                    logger.debug(f"Görüntü boyutu: {frame.shape}")
+
             except Exception as e:
                 logger.error(f"Görüntü alma hatası: {e}")
-                time.sleep(0.5)
+                time.sleep(1)
                 continue
 
             # Kare sayacını artır

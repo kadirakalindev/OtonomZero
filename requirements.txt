@@ -2,19 +2,25 @@
 opencv-python>=4.5.0
 numpy>=1.20.0
 loguru>=0.6.0
-
+Pillow>=9.0.0  # PIL kütüphanesi (alternatif görüntü işleme için)
+picamera2>=0.3.12
 # GPIO paketleri - pip ile kurulabilir, ancak apt ile kurulması önerilir
 gpiozero>=1.6.0
 pigpio>=1.78  # Daha iyi performans için pigpio kullanılır
 
 # Sistem paketleri - apt ile kurulmalıdır
 # sudo apt update
-# sudo apt install -y python3-picamera2 python3-libcamera python3-opencv
+# sudo apt install -y python3-picamera2 python3-libcamera python3-opencv libcamera-apps
 # sudo apt install -y python3-gpiozero python3-pigpio python3-rpi.gpio
-# sudo apt install -y libcamera-apps
+# sudo apt install -y python3-pil  # Python Pillow kütüphanesi (sistem paketi)
 
 # pigpio daemon'ı başlatma
 # sudo pigpiod
 # sudo systemctl enable pigpiod  # Sistem başlangıcında otomatik başlatma
 
 # NOT: picamera2 ve libcamera modülleri pip üzerinden kurulmak yerine apt ile kurulmalıdır
+
+# Alternatif kurulum yöntemi (sembolik bağlantı oluşturma)
+# PYTHON_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+# sudo ln -s /usr/lib/python3/dist-packages/picamera2 /usr/local/lib/python$PYTHON_VERSION/dist-packages/
+# sudo ln -s /usr/lib/python3/dist-packages/libcamera /usr/local/lib/python$PYTHON_VERSION/dist-packages/

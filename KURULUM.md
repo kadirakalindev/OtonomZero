@@ -126,31 +126,51 @@ python3 main.py
 
 ## 7. Sorun Giderme
 
-### "No module named 'libcamera'" Hatası
+### "No module named 'libcamera'" veya "No module named 'picamera2'" Hatası
 
-Bu hata, libcamera modülünün doğru şekilde kurulmadığını gösterir:
+Bu hatalar, libcamera veya picamera2 modüllerinin doğru şekilde kurulmadığını gösterir:
 
 ```bash
-# Çözüm
+# Çözüm 1: Paketleri yeniden yükle
 sudo apt update
-sudo apt install -y python3-libcamera python3-picamera2 libcamera-apps
+sudo apt install -y --reinstall python3-libcamera python3-picamera2 libcamera-apps
 
 # Kamera modülünü test et
 libcamera-hello
 
 # Python'da test et
-python3 -c "from picamera2 import Picamera2; from libcamera import Transform; print('Modüller başarıyla içe aktarıldı')"
+python3 -c "from picamera2 import Picamera2; print('Picamera2 modülü başarıyla içe aktarıldı')"
 ```
 
 Eğer hata devam ederse:
 
 ```bash
-# Sistem paketlerini güncelle
+# Çözüm 2: Python modül yollarını kontrol et
+python3 -c "import sys; print(sys.path)"
+
+# Modüllerin konumunu bul
+sudo find / -name "picamera2" -type d 2>/dev/null
+sudo find / -name "libcamera" -type d 2>/dev/null
+
+# Çözüm 3: Sembolik bağlantı oluştur
+# Örnek: Modül /usr/lib/python3/dist-packages'da ise ve Python yolunda değilse
+PYTHON_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+sudo ln -s /usr/lib/python3/dist-packages/picamera2 /usr/local/lib/python$PYTHON_VERSION/dist-packages/
+sudo ln -s /usr/lib/python3/dist-packages/libcamera /usr/local/lib/python$PYTHON_VERSION/dist-packages/
+
+# Çözüm 4: Sistem paketlerini güncelle
 sudo apt update
 sudo apt full-upgrade
 
 # Raspberry Pi'yi yeniden başlat
 sudo reboot
+```
+
+Eğer yukarıdaki çözümler işe yaramazsa, alternatif bir yaklaşım deneyin:
+
+```bash
+# Çözüm 5: Python sanal ortamı kullanmadan doğrudan sistem Python'ını kullan
+sudo python3 main.py
 ```
 
 ### "No module named 'cv2'" Hatası
